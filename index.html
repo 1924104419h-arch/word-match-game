@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>双人默契词语游戏</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#20242c;background:#f4f5f8}
+*{box-sizing:border-box}body{margin:0;padding:24px 14px}.wrap{max-width:620px;margin:auto}
+header{text-align:center;margin:18px 0 24px}h1{font-size:28px;margin:0 0 8px}.sub{color:#697386;font-size:14px}
+.card{background:white;border:1px solid #e4e7ed;border-radius:18px;padding:20px;margin:14px 0;box-shadow:0 5px 20px #1b2b4408}
+h2{font-size:18px;margin:0 0 14px}label{display:block;font-weight:650;font-size:14px;margin:12px 0 6px}
+input{width:100%;padding:13px 14px;border:1px solid #d9dee8;border-radius:10px;font-size:16px}
+button{border:0;border-radius:11px;padding:13px 16px;font-size:15px;font-weight:700;cursor:pointer;background:#edf0f5;color:#252b36}
+button.primary{background:#3559d8;color:white}button:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;gap:10px;flex-wrap:wrap}.actions button{flex:1}
+.hidden{display:none!important}.muted{color:#778195;font-size:13px}.status{padding:12px;border-radius:11px;background:#f1f4fa;margin-top:12px;line-height:1.55}
+.players{display:grid;grid-template-columns:1fr 1fr;gap:10px}.player{background:#f5f6fa;padding:13px;border-radius:12px}
+.player strong{display:block;margin-bottom:5px}.word{font-size:clamp(25px,7vw,38px);font-weight:800;overflow-wrap:anywhere;text-align:center;padding:18px 5px}
+.vote{display:flex;gap:10px}.vote button{flex:1}.roomcode{font-size:24px;font-weight:800;letter-spacing:3px}
+footer{text-align:center;color:#8991a0;font-size:12px;margin:24px}
+a{color:#3559d8}#error{color:#a32232;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><h1>双人默契挑战</h1><div class="sub">两个人各写一个词，看看你们想到的是不是同一个意思</div></header>
+
+<section class="card" id="setup">
+  <div id="config">
+    <h2>连接游戏服务</h2>
+    <p class="muted">第一次使用时，填入你在 Supabase 项目设置中找到的 Project URL 和 anon public key。此信息会保存在当前浏览器。</p>
+    <label>Supabase Project URL</label><input id="url" placeholder="https://xxxx.supabase.co">
+    <label>Supabase anon public key</label><input id="key" placeholder="sb_publishable_... 或 anon key">
+    <button class="primary" id="saveConfig" style="width:100%;margin-top:14px">保存并连接</button>
+  </div>
+  <div id="roomSetup" class="hidden">
+    <h2 id="setupTitle">创建或加入房间</h2>
+    <label>你的昵称</label><input id="nickname" maxlength="20" placeholder="例如：玩家 A">
+    <div class="actions" style="margin-top:14px">
+      <button class="primary" id="create">创建新房间</button>
+    </div>
+    <div style="text-align:center;margin:14px;color:#8991a0">或者</div>
+    <label>输入对方发来的房间码</label><input id="roomCode" maxlength="8" placeholder="例如 ABC123">
+    <button id="join" style="width:100%;margin-top:10px">加入房间</button>
+    <p class="muted" style="margin-top:14px">也可以直接打开对方发来的邀请链接加入。</p>
+  </div>
+</section>
+
+<section class="card hidden" id="game">
+ <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+  <div><div class="muted">当前房间</div><div class="roomcode" id="roomLabel"></div></div>
+  <div style="text-align:right"><div class="muted">轮次 / 匹配成功</div><strong><span id="round">1</span> / <span id="score">0</span></strong></div>
+ </div>
+ <div class="status" id="roomStatus">等待另一位玩家加入…</div>
+ <div id="inviteBox" class="status hidden">
+  <strong>把这个链接发给对方：</strong>
+  <div id="inviteLink" style="overflow-wrap:anywhere;margin:8px 0"></div>
+  <button id="copyInvite" class="primary" style="width:100%">复制邀请链接</button>
+ </div>
+ <div id="inputArea" class="hidden">
+  <h2 style="margin-top:18px">写下你想到的词语</h2>
+  <p class="muted">提交前看不到对方的答案。提交后请等待对方也提交。</p>
+  <input id="word" maxlength="50" placeholder="输入一个词语">
+  <button class="primary" id="submitWord" style="width:100%;margin-top:12px">提交答案</button>
+ </div>
+ <div id="revealArea" class="hidden">
+  <h2 style="margin-top:18px">答案揭晓</h2>
+  <div class="players">
+   <div class="player"><strong id="nameA">玩家 A</strong><div class="word" id="wordA"></div></div>
+   <div class="player"><strong id="nameB">玩家 B</strong><div class="word" id="wordB"></div></div>
+  </div>
+  <div id="voteArea" class="hidden">
+   <h2 style="margin-top:18px">你认为这两个词的意思相同吗？</h2>
+   <div class="vote"><button id="yes">意思相同</button><button id="no">意思不同</button></div>
+   <p class="muted" id="voteStatus">双方独立投票，提交前看不到对方的选择。</p>
+  </div>
+  <div id="resultArea" class="status hidden"></div>
+  <button id="next" class="primary hidden" style="width:100%;margin-top:12px">进入下一轮</button>
+ </div>
+ <button id="leave" style="width:100%;margin-top:18px">退出当前房间</button>
+</section>
+<div id="error" role="alert"></div>
+<footer>双人默契挑战 · 邀请链接仅用于加入对应房间</footer>
+</div>
+<script>
+(() => {
+ const $ = id => document.getElementById(id);
+ let supa=null, roomCode=null, token=null, role=null, poller=null, busy=false, myVote=null;
+ const params=new URLSearchParams(location.search);
+ const saved=()=>({url:localStorage.getItem('wm_url')||'',key:localStorage.getItem('wm_key')||''});
+ function err(s){$('error').textContent=s||''}
+ function client(){const c=saved();if(!c.url||!c.key)return false;supa=window.supabase.createClient(c.url,c.key);return true}
+ function showGame(code){roomCode=code;$('setup').classList.add('hidden');$('game').classList.remove('hidden');$('roomLabel').textContent=code;$('inviteLink').textContent=location.origin+location.pathname+'?room='+code;$('inviteBox').classList.toggle('hidden',role!=='A');startPolling()}
+ async function rpc(name,args){const {data,error}=await supa.rpc(name,args);if(error)throw error;return data}
+ async function createRoom(){
+  if(busy)return;busy=true;err('');
+  try{const r=await rpc('wm_create_room',{p_nickname:$('nickname').value.trim()||'玩家 A'});roomCode=r.room_code;token=r.player_token;role='A';localStorage.setItem('wm_session',JSON.stringify({roomCode,token,role}));showGame(roomCode)}
+  catch(e){err('创建失败：'+e.message)}finally{busy=false}
+ }
+ async function joinRoom(code){
+  if(busy)return;busy=true;err('');
+  try{const r=await rpc('wm_join_room',{p_room_code:code.toUpperCase(),p_nickname:$('nickname').value.trim()||'玩家 B'});roomCode=r.room_code;token=r.player_token;role='B';localStorage.setItem('wm_session',JSON.stringify({roomCode,token,role}));history.replaceState({},'',location.pathname+'?room='+roomCode);showGame(roomCode)}
+  catch(e){err('加入失败：'+e.message)}finally{busy=false}
+ }
+ async function refresh(){
+  if(!roomCode||!token)return;
+  try{
+   const s=await rpc('wm_get_state',{p_room_code:roomCode,p_player_token:token});
+   $('round').textContent=s.round_no;$('score').textContent=s.score;
+   if(s.player_count<2){$('roomStatus').textContent='房间已创建，正在等待另一位玩家加入。把邀请链接发给对方即可。';$('inviteBox').classList.remove('hidden');$('inputArea').classList.add('hidden');$('revealArea').classList.add('hidden');return}
+   $('inviteBox').classList.add('hidden');$('roomStatus').textContent='两位玩家已就位。';
+   if(s.phase==='input'){
+    $('inputArea').classList.remove('hidden');$('revealArea').classList.add('hidden');
+    $('submitWord').disabled=s.my_submitted;$('word').disabled=s.my_submitted;
+    $('submitWord').textContent=s.my_submitted?'已提交，等待对方…':'提交答案';
+    $('roomStatus').textContent=s.other_submitted?'对方已提交，等待你提交。':'双方答案在提交完成前保持隐藏。';
+   }else{
+    $('inputArea').classList.add('hidden');$('revealArea').classList.remove('hidden');
+    $('nameA').textContent=s.player_a_name||'玩家 A';$('nameB').textContent=s.player_b_name||'玩家 B';
+    $('wordA').textContent=s.word_a;$('wordB').textContent=s.word_b;
+    if(s.phase==='voting'){
+      $('voteArea').classList.remove('hidden');$('resultArea').classList.add('hidden');$('next').classList.add('hidden');
+      $('yes').disabled=!!s.my_voted;$('no').disabled=!!s.my_voted;
+      $('voteStatus').textContent=s.my_voted?'你已投票，等待对方投票。':'双方独立投票，提交前看不到对方的选择。';
+    }else if(s.phase==='result'){
+      $('voteArea').classList.add('hidden');$('resultArea').classList.remove('hidden');$('next').classList.remove('hidden');
+      $('resultArea').textContent=s.result==='match'?'🎉 默契匹配成功！双方都认为意思相同。':s.result==='split'?'双方意见不一致：一人认为相同，另一人认为不同。':'双方都认为意思不同，本轮未匹配。';
+    }
+   }
+  }catch(e){err('同步失败：'+e.message)}
+ }
+ function startPolling(){if(poller)clearInterval(poller);refresh();poller=setInterval(refresh,1400)}
+ $('saveConfig').onclick=()=>{const u=$('url').value.trim(),k=$('key').value.trim();if(!u||!k){err('请填写 Project URL 和 anon public key');return}localStorage.setItem('wm_url',u);localStorage.setItem('wm_key',k);if(client()){$('config').classList.add('hidden');$('roomSetup').classList.remove('hidden');if(params.get('room')){$('roomCode').value=params.get('room').toUpperCase();$('setupTitle').textContent='加入好友的房间'}err('连接设置已保存。')}}
+ $('create').onclick=createRoom;
+ $('join').onclick=()=>joinRoom($('roomCode').value.trim());
+ $('copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText($('inviteLink').textContent);$('copyInvite').textContent='已复制！'}catch(e){err('复制失败，请长按链接手动复制。')}}
+ $('submitWord').onclick=async()=>{const w=$('word').value.trim();if(!w){err('先写下一个词语。');return}try{await rpc('wm_submit_word',{p_room_code:roomCode,p_player_token:token,p_word:w});$('word').disabled=true;$('submitWord').disabled=true;refresh()}catch(e){err('提交失败：'+e.message)}}
+ async function vote(choice){try{await rpc('wm_vote',{p_room_code:roomCode,p_player_token:token,p_choice:choice});$('yes').disabled=true;$('no').disabled=true;refresh()}catch(e){err('投票失败：'+e.message)}}
+ $('yes').onclick=()=>vote('yes');$('no').onclick=()=>vote('no');
+ $('next').onclick=async()=>{try{await rpc('wm_next_round',{p_room_code:roomCode,p_player_token:token});$('word').value='';refresh()}catch(e){err('暂时不能进入下一轮：'+e.message)}}
+ $('leave').onclick=()=>{if(poller)clearInterval(poller);localStorage.removeItem('wm_session');roomCode=null;token=null;role=null;location.href=location.pathname}
+ // Restore a session in this browser, or prepare a room-code invite join.
+ const cfg=saved();$('url').value=cfg.url;$('key').value=cfg.key;
+ if(client()){
+  $('config').classList.add('hidden');$('roomSetup').classList.remove('hidden');
+  const session=JSON.parse(localStorage.getItem('wm_session')||'null');
+  if(session&&session.roomCode&&session.token){
+   roomCode=session.roomCode;token=session.token;role=session.role;showGame(roomCode);
+  }else if(params.get('room')){$('roomCode').value=params.get('room').toUpperCase();$('setupTitle').textContent='加入好友的房间';}
+ }
+})();
+</script>
+</body>
+</html>
