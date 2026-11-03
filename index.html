@@ -101,7 +101,7 @@ footer{text-align:center;color:#8991a0;font-size:12px;margin:22px}
  function err(s){$('error').textContent=s||''}
  function client(){const c=saved();if(!c.url||!c.key)return false;supa=window.supabase.createClient(c.url,c.key);return true}
  async function rpc(name,args){const {data,error}=await supa.rpc(name,args);if(error)throw error;return data}
- function showGame(code){roomCode=code;$('setup').classList.add('hidden');$('game').classList.remove('hidden');$('historyCard').classList.remove('hidden');$('roomLabel').textContent=code;$('inviteLink').textContent=location.origin+location.pathname+'?room='+code;$('inviteBox').classList.toggle('hidden',role!=='A');startPolling()}
+ function showGame(code){roomCode=code;$('setup').classList.add('hidden');$('game').classList.remove('hidden');$('historyCard').classList.remove('hidden');$('roomLabel').textContent=code;$('inviteLink').textContent=location.origin+location.pathname+'?room='+code;$('inviteBox').classList.toggle('hidden',role!=='A');window.startPolling()}
  async function createRoom(){
   if(busy)return;busy=true;err('');
   try{const r=await rpc('wm_create_room',{p_nickname:$('nickname').value.trim()||'玩家 A'});roomCode=r.room_code;token=r.player_token;role='A';localStorage.setItem('wm_session',JSON.stringify({roomCode,token,role}));showGame(roomCode)}
@@ -125,11 +125,11 @@ footer{text-align:center;color:#8991a0;font-size:12px;margin:22px}
   });
   $('historyMeta').textContent=(items||[]).length+'/12 轮';
  }
- function startPolling(){
+ window.startPolling=function(){
   if(poller)clearInterval(poller);
   refresh();
   poller=setInterval(refresh,2000);
-}
+ };
 
 async function refresh(){
   if(!roomCode||!token)return;
