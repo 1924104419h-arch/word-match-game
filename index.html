@@ -31,7 +31,7 @@ footer{text-align:center;color:#8991a0;font-size:12px;margin:22px}
 </style>
 </head>
 <body><div class="wrap">
-<header><h1>双人默契挑战</h1><div class="sub">两个人各写一个词，看看你们想到的是不是同一个意思</div></header>
+<header><h1>双人默契挑战</h1><div class="sub">两个人各写一个词，看看你们想到的是不是同一个意思</div><button id="soundToggle" type="button" style="margin-top:10px;padding:7px 12px;font-size:13px">音效：开</button></header>
 
 <section class="card" id="setup">
  <div id="config">
@@ -97,6 +97,35 @@ footer{text-align:center;color:#8991a0;font-size:12px;margin:22px}
  const $=id=>document.getElementById(id);
  let supa=null,roomCode=null,token=null,role=null,poller=null,busy=false;
  const params=new URLSearchParams(location.search);
+ // 轻柔的网页合成音效：无需额外音频文件，首次点击后由浏览器启动音频。
+ let audioCtx=null;
+ let soundEnabled=localStorage.getItem('wm_sound')!=='off';
+ let lastPhase=null;
+ function getAudio(){
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return null;
+  if(!audioCtx)audioCtx=new AC();
+  if(audioCtx.state==='suspended')audioCtx.resume();
+  return audioCtx;
+ }
+ function tone(freq,delay,duration,volume=0.045,type='sine'){
+  if(!soundEnabled)return;
+  const c=getAudio();if(!c)return;
+  const t=c.currentTime+delay,osc=c.createOscillator(),gain=c.createGain();
+  osc.type=type;osc.frequency.setValueAtTime(freq,t);
+  gain.gain.setValueAtTime(0.0001,t);
+  gain.gain.exponentialRampToValueAtTime(volume,t+0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001,t+duration);
+  osc.connect(gain);gain.connect(c.destination);osc.start(t);osc.stop(t+duration+0.02);
+ }
+ function playSound(kind){
+  if(!soundEnabled)return;
+  if(kind==='click'){tone(620,0,0.055,0.025);}
+  if(kind==='submit'){tone(523,0,0.12,0.035);tone(659,0.10,0.16,0.032);}
+  if(kind==='reveal'){tone(587,0,0.15,0.035);tone(740,0.12,0.18,0.038);tone(880,0.25,0.22,0.032);}
+  if(kind==='agree'){tone(523,0,0.20,0.035);tone(659,0.08,0.22,0.035);tone(784,0.16,0.30,0.038);}
+  if(kind==='next'){tone(659,0,0.10,0.025);tone(523,0.10,0.15,0.025);}
+ }
  const saved=()=>({url:localStorage.getItem('wm_url')||'',key:localStorage.getItem('wm_key')||''});
  function err(s){$('error').textContent=s||''}
  function client(){const c=saved();if(!c.url||!c.key)return false;supa=window.supabase.createClient(c.url,c.key);return true}
@@ -135,6 +164,9 @@ async function refresh(){
   if(!roomCode||!token)return;
   try{
    const s=await rpc('wm_get_state',{p_room_code:roomCode,p_player_token:token});
+   if(lastPhase==='input'&&s.phase!=='input')playSound('reveal');
+   if(lastPhase==='voting'&&s.phase!=='voting')playSound('agree');
+   lastPhase=s.phase;
    $('round').textContent=s.block_round;$('score').textContent=s.score;renderHistory(s.history||[],s.block_round);
    if(s.player_count<2){$('roomStatus').textContent='房间已创建，正在等待另一位玩家加入。把邀请链接发给对方即可。';$('inviteBox').classList.remove('hidden');$('inputArea').classList.add('hidden');$('revealArea').classList.add('hidden');return}
    $('inviteBox').classList.add('hidden');$('roomStatus').textContent='两位玩家已就位。';
@@ -168,13 +200,16 @@ async function refresh(){
    }
   }catch(e){err('同步失败：'+e.message)}
  }
+ $('soundToggle').textContent='音效：'+(soundEnabled?'开':'关');
+ $('soundToggle').onclick=()=>{soundEnabled=!soundEnabled;localStorage.setItem('wm_sound',soundEnabled?'on':'off');$('soundToggle').textContent='音效：'+(soundEnabled?'开':'关');if(soundEnabled)playSound('click')};
+ document.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.id!=='soundToggle'&&!b.disabled&&!['submitWord','yes','no','next'].includes(b.id))playSound('click')});
  $('saveConfig').onclick=()=>{const u=$('url').value.trim(),k=$('key').value.trim();if(!u||!k){err('请填写 Project URL 和 anon / publishable public key');return}localStorage.setItem('wm_url',u);localStorage.setItem('wm_key',k);if(client()){$('config').classList.add('hidden');$('roomSetup').classList.remove('hidden');if(params.get('room')){$('roomCode').value=params.get('room').toUpperCase();$('setupTitle').textContent='加入好友的房间'}err('连接设置已保存。')}};
  $('create').onclick=createRoom;$('join').onclick=()=>joinRoom($('roomCode').value.trim());
  $('copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText($('inviteLink').textContent);$('copyInvite').textContent='已复制！'}catch(e){err('复制失败，请长按链接手动复制。')}};
- $('submitWord').onclick=async()=>{const w=$('word').value.trim();if(!w){err('先写下一个词语。');return}try{await rpc('wm_submit_word',{p_room_code:roomCode,p_player_token:token,p_word:w});$('word').value='';refresh()}catch(e){err('提交失败：'+e.message)}};
- async function vote(choice){try{await rpc('wm_vote',{p_room_code:roomCode,p_player_token:token,p_choice:choice});refresh()}catch(e){err('投票失败：'+e.message)}}
+ $('submitWord').onclick=async()=>{const w=$('word').value.trim();if(!w){err('先写下一个词语。');return}try{await rpc('wm_submit_word',{p_room_code:roomCode,p_player_token:token,p_word:w});playSound('submit');$('word').value='';refresh()}catch(e){err('提交失败：'+e.message)}};
+ async function vote(choice){try{await rpc('wm_vote',{p_room_code:roomCode,p_player_token:token,p_choice:choice});playSound('click');refresh()}catch(e){err('投票失败：'+e.message)}}
  $('yes').onclick=()=>vote('yes');$('no').onclick=()=>vote('no');
- $('next').onclick=async()=>{try{$('next').disabled=true;await rpc('wm_next_round',{p_room_code:roomCode,p_player_token:token});refresh()}catch(e){err('暂时不能进入下一轮：'+e.message);refresh()}finally{$('next').disabled=false}};
+ $('next').onclick=async()=>{try{$('next').disabled=true;await rpc('wm_next_round',{p_room_code:roomCode,p_player_token:token});lastPhase=null;playSound('next');refresh()}catch(e){err('暂时不能进入下一轮：'+e.message);refresh()}finally{$('next').disabled=false}};
  $('leave').onclick=()=>{if(poller)clearInterval(poller);localStorage.removeItem('wm_session');roomCode=null;token=null;role=null;location.href=location.pathname};
  const cfg=saved();$('url').value=cfg.url;$('key').value=cfg.key;
  if(client()){
