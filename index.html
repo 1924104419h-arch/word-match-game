@@ -125,7 +125,13 @@ footer{text-align:center;color:#8991a0;font-size:12px;margin:22px}
   });
   $('historyMeta').textContent=(items||[]).length+'/12 轮';
  }
- async function refresh(){
+ function startPolling(){
+  if(poller)clearInterval(poller);
+  refresh();
+  poller=setInterval(refresh,2000);
+}
+
+async function refresh(){
   if(!roomCode||!token)return;
   try{
    const s=await rpc('wm_get_state',{p_room_code:roomCode,p_player_token:token});
